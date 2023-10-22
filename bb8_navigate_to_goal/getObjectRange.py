@@ -19,9 +19,6 @@ class GetRange(Node):
 		    depth=1
 		)
 
-        self._bearing_angle_subscriber = self.create_subscription(Point, '/bearing_angle', self.object_callback, image_qos_profile)
-        self._bearing_angle_subscriber
-
         self._lidar_subscriber = self.create_subscription(LaserScan, '/scan', self.lidar_callback, image_qos_profile)
         self._lidar_subscriber
 
@@ -32,14 +29,6 @@ class GetRange(Node):
         self.theta = 0.0
         self.bool_detect = False
 
-
-    def object_callback(self, bearing):
-        # Decide if any obstacle is detected
-        if bearing.z != -1.0:
-            self.theta = bearing.x * (pi / 180)
-            self.bool_detect = True
-        else:
-            self.bool_detect = False
 
     ## Not sure if we need this algorithm
     # def Split_and_Merge(self, threshold):
@@ -58,30 +47,32 @@ class GetRange(Node):
         LIDAR coordinate: counterclockwise = + theta
         """
 
+        angle_min = posinfo.angle_min
+        angle_max = posinfo.angle_max
+        angle_inc = posinfo.angle_increment
+
         # Define the range in front of the camera that Turtlebot can see
         roi_min = (-30) * (pi / 180)
         roi_max = 30 * (pi / 180)
 
-        if roi_min <= self.theta and roi_max >= self.theta:
-            # if any obstacle is detected
-            # if self.bool_detect is True:
-            range = np.array(posinfo.ranges)
-            range = range[~np.isnan(range)]
-            n = len(range)
+        # if roi_min <= self.theta and roi_max >= self.theta:
+        ranges = np.array(posinfo.ranges)
+        ranges = range[~np.isnan(ranges)]
+        n = len(ranges)
 
-            angle_min = posinfo.angle_min
-            angle_max = posinfo.angle_max
-            angle_inc = posinfo.angle_increment
+        for range in ranges:
+            distance = range
+            if distance < 1.0:
+                """
+                There is obstacle detected!
+                """
 
-            object_index = ceil(abs(self.theta) / angle_inc)
-            if self.theta < 0:
-                object_index = n - ceil(abs(self.theta) / angle_inc)
+                self.bool_detect = True
 
-            object_dis = range[object_index]
-
-            pos = Twist()
-            pos.linear.x = float(object_dis)
-            pos.angular.z = self.theta
+                # How to determine the angle?
+                pos = Twist()
+                pos.linear.x = float(distance)
+                pos.angular.z = self.theta
 
             self.object_position_publisher.publish(pos)
 

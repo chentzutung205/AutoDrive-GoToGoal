@@ -8,6 +8,10 @@ from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy, QoS
 import numpy as np
 import math
 
+# Define the way points
+way_point = np.array([[1.5,0], [1.5,1.4], [0,1.4]])
+l = 0.1
+
 class GoToGoal(Node):
     def __init__(self):
         super().__init__('go_to_goal')
@@ -42,8 +46,14 @@ class GoToGoal(Node):
 
         self.velocity_publisher = self.create_publisher(Twist, '/cmd_vel', 10)
 
+        # Store the information for updating
+        self.way_point_ind = 0
+
+
+
     def odom_callback(self, data):
         self.update_Odometry(data)
+
 
     def object_callback(self, pos):
         """
@@ -77,6 +87,24 @@ class GoToGoal(Node):
         self.globalAng = orientation - self.Init_ang
 
         self.get_logger().info('Transformed global pose is x:{}, y:{}, a:{}'.format(self.globalPos.x,self.globalPos.y,self.globalAng))
+
+
+    def GTG(self, xr, yr, angle):
+        wayp_x, wayp_y = way_point[self.way_point_ind][:]
+        ux = wayp_x - xr
+        uy = wayp_y - yr
+
+        rot_mtx = np.matrix([[np.cos(angle), np.sin(angle)],[-np.sin(angle), np.cos(angle)]])
+        v, w = np.matrix([[1, 0], [0, 1/l]]) * rot_mtx * np.array([[ux], [uy]])
+        
+        return (v, w)
+
+    def AO(self, xr, yr, angle):
+        if True:
+            pass
+        else:
+            return True
+
 
 
 def main(args=None):
