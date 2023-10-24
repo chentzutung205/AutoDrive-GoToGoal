@@ -8,6 +8,9 @@ from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy, QoS
 import numpy as np
 from math import pi
 
+from rclpy.duration import Duration
+import time
+
 # Define the way points
 way_point = np.array([[1.5, 0], [1.5, 1.4], [0, 1.4]])
 
@@ -15,8 +18,8 @@ way_point = np.array([[1.5, 0], [1.5, 1.4], [0, 1.4]])
 K_GTG = 1.0
 K_AO = -1.0
 L = 0.1 # What is the result of changing L?
-dt = 0.2
-dist_desired = 0.2
+dt = 1.0
+dist_safety = 0.2
 epsilon = 0.05
 
 
@@ -47,6 +50,7 @@ class BehaviorControl(Node):
             image_qos_profile)
         self.odom_subscriber  # prevent unused variable warning
 
+
         self._object_position_subscriber = self.create_subscription(
             Twist,
             '/distance_and_angle',
@@ -54,12 +58,14 @@ class BehaviorControl(Node):
             image_qos_profile)
         self._object_position_subscriber
 
+
         self._object_vector_subscriber = self.create_subscription(
             Point,
             '/object_vector',
-            self.obstacle_callback,
+            self.vector_callback,
             image_qos_profile)
         self._object_vector_subscriber
+
 
         self.velocity_publisher = self.create_publisher(Twist, '/cmd_vel', 10)
 
@@ -77,23 +83,24 @@ class BehaviorControl(Node):
 
     def object_callback(self, pos):
         """
-        Input is the position info of the obstacle
+        Input is the position info (Twist) of the object.
         """
         if pos.linear.z != -1.0:
             # Obstacle is detected! AO!
-            self.dist_obj = pos.linear.x
+            self.distance_obj = pos.linear.x
             self.angle_obj = pos.angular.z
 
 
-    def obstacle_callback(self, vector):
+    def vector_callback(self, vector):
         """
-        Input is the vector of the obstacle w.r.t the robot
-        Control the motor accordingly
+        Input is the vector (Point) of the object w.r.t the robot.
+        Control the motor accordingly!
         """
         if vector.z == -1.0:
             # Nothing is detected! GTG!
             self.bool_AO = False
         else:
+            # Obstacle is detected! AO!
             self.bool_AO = True
             self.x_obs = vector.x
             self.y_obs = vector.y
@@ -130,7 +137,9 @@ class BehaviorControl(Node):
 
 
         if self.bool_AO is False:
-            v, w = self.GTG_control(self.globalPos.x, self.globalPos.y, self.globalAng)
+            u_GTG = self.GTG_control(self.globalPos.x, self.globalPos.y, self.globalAng)
+            v = u_GTG['v']
+            w = u_GTG['w']
             velocity = Twist()
             velocity.linear.x = float(v)
             velocity.angular.z = float(w)
@@ -146,27 +155,62 @@ class BehaviorControl(Node):
 
     def GTG_control(self, xr, yr, angle):
         wayp_x, wayp_y = way_point[self.way_point_ind][:]
+        # print("wp_x: ", wayp_x, "wp_y: ", wayp_y)
         ux = K_GTG * (wayp_x - xr) / dt
         uy = K_GTG * (wayp_y - yr) / dt
-        u = np.array[[ux], [uy]]
+        u = np.array([[ux], [uy]])
+
+        wp_gap = way_point[self.way_point_ind] - np.array([xr, yr])
+        print("wp_gap: ", wp_gap)
+        
+        if 0.02 > wp_gap[0] and wp_gap[0] > -0.02:
+            print("Achieve goal!")
+            self.way_point_ind += 1
+            self.get_clock().sleep_for(Duration(seconds=10.0))
+            
+
+            if self.way_point_ind == 2:
+                stop_velocity = Twist()
+                self.velocity_publisher.publish(stop_velocity)
 
         # The rotation matrix rotates clockwise
         rot_mtx = np.matrix([[np.cos(angle), np.sin(angle)],[-np.sin(angle), np.cos(angle)]])
-        v, w = np.matrix([[1, 0], [0, 1/L]]) * rot_mtx * u
+        u_GTG = np.matrix([[1, 0], [0, 1/L]]) * rot_mtx * u
+        print("u_GTG: ", u_GTG)
 
-        return (v, w)
+        v = u_GTG[0][0]
+        w = u_GTG[1][0]
+        
+        # Limit robot's velocities
+        if v > 0.22:
+            v = 0.22
+        elif v < -0.22:
+            v = -0.22
+        else:
+            v = v
+
+        if w > 2.84:
+            w = 2.84
+        elif w < -2.84:
+            w = -2.84
+        else:
+            w = w
+
+        print("v: ", v, "w: ", w)
+        return {'v': v, 'w': w}
 
     def AO_control(self, xr, yr, angle):
         ux = K_AO * (self.x_obs - xr) / dt
         uy = K_AO * (self.y_obs - yr) / dt
         u = np.array[[ux], [uy]]
 
-        if self.dist_obj <= dist_desired and self.dist_obj > dist_desired - epsilon:
-            # Follow the wall!
-            rot_c = np.matrix([[np.cos(pi/2), np.sin(pi/2)],[-np.sin(pi/2), np.cos(pi/2)]])
-            rot_cc = np.matrix([[np.cos(-pi/2), np.sin(-pi/2)],[-np.sin(-pi/2), np.cos(-pi/2)]])
-            u_fw_c = rot_c * u
-            u_fw_cc = rot_cc * u
+        # if self.dist_obj <= dist_safety and self.dist_obj > dist_safety - epsilon:
+        #     print("It should follow the wall!")
+        #     # Follow the wall!
+        #     rot_c = np.matrix([[np.cos(pi/2), np.sin(pi/2)],[-np.sin(pi/2), np.cos(pi/2)]])
+        #     rot_cc = np.matrix([[np.cos(-pi/2), np.sin(-pi/2)],[-np.sin(-pi/2), np.cos(-pi/2)]])
+        #     u_fw_c = rot_c * u
+        #     u_fw_cc = rot_cc * u
 
             # Let the goal decide our direction
             # dot_c = np.inner(np.reshape(u))

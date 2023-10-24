@@ -60,16 +60,19 @@ class GetRange(Node):
         
         n = len(ranges)
         dist_min = np.min(ranges)
+        # print("distance: ", dist_min)
+
         dist_min_ind = np.argmin(ranges)
-        dist_desired = 0.2
-        epsilon = 0.05
+        dist_desired = 0.05
 
         if dist_min <= dist_desired:
             """
-            There is something detected! AO + FW!
+            There is something detected! AO!
             """
             self.bool_detect = True
+            print("Obstacle detected! Dangerous!")
             self.theta = angle_min + dist_min_ind * angle_inc
+            # print("angle: ", self.theta)
             
             # Beware of angle!
             # effective range of angle: -pi <= angle <= pi
@@ -79,6 +82,7 @@ class GetRange(Node):
             pos = Twist()
             pos.linear.x = float(dist_min)
             pos.angular.z = self.theta
+
             self.object_position_publisher.publish(pos)
 
             # Turn the position info into vector
@@ -91,7 +95,11 @@ class GetRange(Node):
             self.object_vector_publisher.publish(obj_vector)
 
         else:
+            """
+            Nothing is detected! GTG!
+            """
             self.bool_detect = False
+            print("Cool! Turtlebot is on a roll!")
             self.theta = 0.0
             pos = Twist()
             pos.linear.x = 0.0
