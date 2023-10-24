@@ -5,7 +5,7 @@ from sensor_msgs.msg import LaserScan
 from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy, QoSHistoryPolicy
 
 import numpy as np
-from math import pi, ceil, cos, sin
+from math import pi, cos, sin
 
 
 class GetRange(Node):
@@ -25,7 +25,7 @@ class GetRange(Node):
         self.object_position_publisher = self.create_publisher(Twist, '/distance_and_angle', 10)
         self.object_vector_publisher = self.create_publisher(Point, '/object_vector', 10)
 
-        # theta is the bearing angle of the object
+        # theta is the angle of the object
         self.theta = 0.0
         self.bool_detect = False
 
@@ -48,32 +48,37 @@ class GetRange(Node):
         """
 
         angle_min = posinfo.angle_min
-        angle_max = posinfo.angle_max
         angle_inc = posinfo.angle_increment
 
         # Define the range in front of the camera that Turtlebot can see
-        roi_min = (-30) * (pi / 180)
-        roi_max = 30 * (pi / 180)
+        # roi_min = (-30) * (pi / 180)
+        # roi_max = 30 * (pi / 180)
 
         # if roi_min <= self.theta and roi_max >= self.theta:
         ranges = np.array(posinfo.ranges)
-        ranges = range[~np.isnan(ranges)]
+        ranges = ranges[~np.isnan(ranges)]
+        
         n = len(ranges)
+        dist_min = np.min(ranges)
+        dist_min_ind = np.argmin(ranges)
+        dist_desired = 0.2
+        epsilon = 0.05
 
-        for range in ranges:
-            distance = range
-            if distance < 1.0:
-                """
-                There is obstacle detected!
-                """
+        if dist_min <= dist_desired:
+            """
+            There is something detected! AO + FW!
+            """
+            self.bool_detect = True
+            self.theta = angle_min + dist_min_ind * angle_inc
+            
+            # Beware of angle!
+            # effective range of angle: -pi <= angle <= pi
+            if self.theta > pi:
+                self.theta = self.theta -  (2 * pi)
 
-                self.bool_detect = True
-
-                # How to determine the angle?
-                pos = Twist()
-                pos.linear.x = float(distance)
-                pos.angular.z = self.theta
-
+            pos = Twist()
+            pos.linear.x = float(dist_min)
+            pos.angular.z = self.theta
             self.object_position_publisher.publish(pos)
 
             # Turn the position info into vector
@@ -82,15 +87,16 @@ class GetRange(Node):
             obj_vector.y = pos.linear.x * sin(pos.angular.z)
             obj_vector.z = 0.0
             print("vector: x = ", obj_vector.x, "y = ", obj_vector.y)
-
+            
             self.object_vector_publisher.publish(obj_vector)
 
         else:
+            self.bool_detect = False
+            self.theta = 0.0
             pos = Twist()
             pos.linear.x = 0.0
             pos.angular.z = 0.0
             pos.linear.z = -1.0
-
             self.object_position_publisher.publish(pos)
 
             # Turn the position info into vector
@@ -99,7 +105,7 @@ class GetRange(Node):
             obj_vector.y = 0.0
             obj_vector.z = -1.0
             print("vector: x = ", obj_vector.x, "y = ", obj_vector.y)
-
+            
             self.object_vector_publisher.publish(obj_vector)
 
 
