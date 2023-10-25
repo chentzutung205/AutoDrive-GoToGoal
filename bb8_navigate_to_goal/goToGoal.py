@@ -11,15 +11,16 @@ from math import pi
 from rclpy.duration import Duration
 import time
 
+
 # Define the way points
-way_point = np.array([[1.5, 0], [1.5, 1.4], [0, 1.4]])
+way_point = np.array([[1.7, 0.0], [1.7, 1.5], [0, 1.5]])
 
 # Define controllers' parameters
 K_GTG = 1.0
 K_AO = -1.0
 L = 0.1 # What is the result of changing L?
-dt = 1.0
-dist_safety = 0.2
+
+dist_safety = 0.3
 epsilon = 0.05
 
 
@@ -50,7 +51,6 @@ class BehaviorControl(Node):
             image_qos_profile)
         self.odom_subscriber  # prevent unused variable warning
 
-
         self._object_position_subscriber = self.create_subscription(
             Twist,
             '/distance_and_angle',
@@ -58,14 +58,12 @@ class BehaviorControl(Node):
             image_qos_profile)
         self._object_position_subscriber
 
-
         self._object_vector_subscriber = self.create_subscription(
             Point,
             '/object_vector',
             self.vector_callback,
             image_qos_profile)
         self._object_vector_subscriber
-
 
         self.velocity_publisher = self.create_publisher(Twist, '/cmd_vel', 10)
 
@@ -75,6 +73,7 @@ class BehaviorControl(Node):
         self.bool_AO = False
         self.x_obs = 0.0
         self.y_obs = 0.0
+        self.distance_obj = 1.0
 
 
     def odom_callback(self, data):
@@ -128,6 +127,7 @@ class BehaviorControl(Node):
         
         # This rotation matrix rotates clockwise
         Mrot = np.matrix([[np.cos(self.Init_ang), np.sin(self.Init_ang)],[-np.sin(self.Init_ang), np.cos(self.Init_ang)]])
+        
         # We subtract the initial values
         self.globalPos.x = Mrot.item((0,0))*position.x + Mrot.item((0,1))*position.y - self.Init_pos.x
         self.globalPos.y = Mrot.item((1,0))*position.x + Mrot.item((1,1))*position.y - self.Init_pos.y
@@ -135,48 +135,62 @@ class BehaviorControl(Node):
 
         self.get_logger().info('Transformed global pose is x:{}, y:{}, a:{}'.format(self.globalPos.x,self.globalPos.y,self.globalAng))
 
-
-        if self.bool_AO is False:
-            u_GTG = self.GTG_control(self.globalPos.x, self.globalPos.y, self.globalAng)
-            v = u_GTG['v']
-            w = u_GTG['w']
+        if self.distance_obj <= dist_safety:
+            u_AO = self.AO_control(self.globalPos.x, self.globalPos.y, self.globalAng)
+            v = u_AO['v']
+            w = u_AO['w']
             velocity = Twist()
             velocity.linear.x = float(v)
             velocity.angular.z = float(w)
             self.velocity_publisher.publish(velocity)
+        
+        u_GTG = self.GTG_control(self.globalPos.x, self.globalPos.y, self.globalAng)
+        v = u_GTG['v']
+        w = u_GTG['w']
+        velocity = Twist()
+        velocity.linear.x = float(v)
+        velocity.angular.z = float(w)
+        self.velocity_publisher.publish(velocity)
 
-        else:
-            v ,w = self.AO_control(self.globalPos.x, self.globalPos.y, self.globalAng)
-            velocity = Twist()
-            velocity.linear.x = float(v)
-            velocity.angular.z = float(w)
-            self.velocity_publisher.publish(velocity)
+        
+    def GTG_state(self):
+        if self.way_point_ind == 0:
+            self.way_point_ind = 1
+            print("State 1!")
+        elif self.way_point_ind == 1:
+            self.way_point_ind = 2
+            print("State 2!")
+        elif self.way_point_ind == 2:
+            print("Stop!")
+            stop_velocity = Twist()
+            self.velocity_publisher.publish(stop_velocity)
 
 
     def GTG_control(self, xr, yr, angle):
         wayp_x, wayp_y = way_point[self.way_point_ind][:]
         # print("wp_x: ", wayp_x, "wp_y: ", wayp_y)
-        ux = K_GTG * (wayp_x - xr) / dt
-        uy = K_GTG * (wayp_y - yr) / dt
+        ux = K_GTG * (wayp_x - xr)
+        uy = K_GTG * (wayp_y - yr)
         u = np.array([[ux], [uy]])
 
         wp_gap = way_point[self.way_point_ind] - np.array([xr, yr])
         print("wp_gap: ", wp_gap)
         
-        if 0.02 > wp_gap[0] and wp_gap[0] > -0.02:
-            print("Achieve goal!")
-            self.way_point_ind += 1
-            self.get_clock().sleep_for(Duration(seconds=10.0))
-            
+        if 0.015 > wp_gap[0] and wp_gap[0] > -0.015:
+            if 0.02 > wp_gap[1] and wp_gap[1] > -0.02:
+                print("Achieve goal!")
+                time.sleep(10)
+                self.GTG_state()
 
-            if self.way_point_ind == 2:
-                stop_velocity = Twist()
-                self.velocity_publisher.publish(stop_velocity)
+                if self.way_point_ind == 1:
+                    print("Now wp_ind = 1!")
+                elif self.way_point_ind == 2:
+                    print("Now wp_ind = 2!")
+
 
         # The rotation matrix rotates clockwise
         rot_mtx = np.matrix([[np.cos(angle), np.sin(angle)],[-np.sin(angle), np.cos(angle)]])
         u_GTG = np.matrix([[1, 0], [0, 1/L]]) * rot_mtx * u
-        print("u_GTG: ", u_GTG)
 
         v = u_GTG[0][0]
         w = u_GTG[1][0]
@@ -200,9 +214,9 @@ class BehaviorControl(Node):
         return {'v': v, 'w': w}
 
     def AO_control(self, xr, yr, angle):
-        ux = K_AO * (self.x_obs - xr) / dt
-        uy = K_AO * (self.y_obs - yr) / dt
-        u = np.array[[ux], [uy]]
+        ux = K_AO * (self.x_obs - xr)
+        uy = K_AO * (self.y_obs - yr)
+        u = np.array([[ux], [uy]])
 
         # if self.dist_obj <= dist_safety and self.dist_obj > dist_safety - epsilon:
         #     print("It should follow the wall!")
@@ -218,10 +232,29 @@ class BehaviorControl(Node):
             
 
         # The rotation matrix rotates clockwise
-        rot_mtx = np.matrix([[np.cos(angle), np.sin(angle)],[-np.sin(angle), np.cos(angle)]])
-        v, w = np.matrix([[1, 0], [0, 1/L]]) * rot_mtx * u
+        rot_mtx = np.matrix([[np.cos(-angle), np.sin(-angle)],[-np.sin(-angle), np.cos(-angle)]])
+        u_AO = np.matrix([[1, 0], [0, 1/L]]) * rot_mtx * u
 
-        return (v, w)
+        v = u_AO[0][0]
+        w = u_AO[1][0]
+        
+        # Limit robot's velocities
+        if v > 0.22:
+            v = 0.22
+        elif v < -0.22:
+            v = -0.22
+        else:
+            v = v
+
+        if w > 2.84:
+            w = 2.84
+        elif w < -2.84:
+            w = -2.84
+        else:
+            w = w
+        
+        print("v: ", v, "w: ", w)
+        return {'v': v, 'w': w}
 
 
 def main(args=None):
