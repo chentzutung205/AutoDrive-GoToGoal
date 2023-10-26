@@ -63,7 +63,7 @@ class GetRange(Node):
         # print("distance: ", dist_min)
 
         dist_min_ind = np.argmin(ranges)
-        dist_desired = 0.3
+        dist_desired = 0.05
 
         if dist_min <= dist_desired:
             """

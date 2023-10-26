@@ -20,7 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-        	'detect_object=bb8_navigate_to_goal.detect_object:main',
+        	'test=bb8_navigate_to_goal.test:main',
         	'getObjectRange=bb8_navigate_to_goal.getObjectRange:main',
         	'goToGoal=bb8_navigate_to_goal.goToGoal:main'
         ],
