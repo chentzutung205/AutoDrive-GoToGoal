@@ -57,64 +57,75 @@ class GetRange(Node):
         # if roi_min <= self.theta and roi_max >= self.theta:
         ranges = np.array(posinfo.ranges)
         ranges = ranges[~np.isnan(ranges)]
-        
         n = len(ranges)
         dist_min = np.min(ranges)
         # print("distance: ", dist_min)
 
         dist_min_ind = np.argmin(ranges)
-        dist_desired = 0.05
+        self.theta = angle_min + dist_min_ind * angle_inc
+        if self.theta > pi:
+                self.theta = self.theta -  (2 * pi)
 
-        if dist_min <= dist_desired:
-            """
-            There is something detected! AO!
-            """
-            self.bool_detect = True
-            print("Obstacle detected! Dangerous!")
-            self.theta = angle_min + dist_min_ind * angle_inc
+        pos = Twist()
+        pos.linear.x = float(dist_min)
+        pos.angular.z = self.theta
+
+        self.object_position_publisher.publish(pos)
+        
+        # dist_desired = 0.15
+
+        # if dist_min <= dist_desired:
+            # """
+            # There is something detected! AO!
+            # """
+            # print("Obstacle detected! Dangerous!")
+
+            # self.bool_detect = True
+            # self.theta = angle_min + dist_min_ind * angle_inc
             # print("angle: ", self.theta)
             
             # Beware of angle!
             # effective range of angle: -pi <= angle <= pi
-            if self.theta > pi:
-                self.theta = self.theta -  (2 * pi)
+            # if self.theta > pi:
+            #     self.theta = self.theta -  (2 * pi)
 
-            pos = Twist()
-            pos.linear.x = float(dist_min)
-            pos.angular.z = self.theta
+            # pos = Twist()
+            # pos.linear.x = float(dist_min)
+            # pos.angular.z = self.theta
 
-            self.object_position_publisher.publish(pos)
-
-            # Turn the position info into vector
-            obj_vector = Point()
-            obj_vector.x = pos.linear.x * cos(pos.angular.z)
-            obj_vector.y = pos.linear.x * sin(pos.angular.z)
-            obj_vector.z = 0.0
-            print("vector: x = ", obj_vector.x, "y = ", obj_vector.y)
-            
-            self.object_vector_publisher.publish(obj_vector)
-
-        else:
-            """
-            Nothing is detected! GTG!
-            """
-            self.bool_detect = False
-            print("Cool! Turtlebot is on a roll!")
-            self.theta = 0.0
-            pos = Twist()
-            pos.linear.x = 0.0
-            pos.angular.z = 0.0
-            pos.linear.z = -1.0
-            self.object_position_publisher.publish(pos)
+            # self.object_position_publisher.publish(pos)
 
             # Turn the position info into vector
-            obj_vector = Point()
-            obj_vector.x = 0.0
-            obj_vector.y = 0.0
-            obj_vector.z = -1.0
-            print("vector: x = ", obj_vector.x, "y = ", obj_vector.y)
+        obj_vector = Point()
+        obj_vector.x = pos.linear.x * cos(pos.angular.z)
+        obj_vector.y = pos.linear.x * sin(pos.angular.z)
+        obj_vector.z = 0.0
+        
+        print("vector: x = ", obj_vector.x, "y = ", obj_vector.y)
+        print("dist: ", dist_min)
+        self.object_vector_publisher.publish(obj_vector)
+
+        # else:
+        #     """
+        #     Nothing is detected! GTG!
+        #     """
+        #     self.bool_detect = False
+        #     print("Cool! Turtlebot is on a roll!")
+        #     self.theta = 0.0
+        #     pos = Twist()
+        #     pos.linear.x = 0.0
+        #     pos.angular.z = 0.0
+        #     pos.linear.z = -1.0
+        #     self.object_position_publisher.publish(pos)
+
+        #     # Turn the position info into vector
+        #     obj_vector = Point()
+        #     obj_vector.x = 0.0
+        #     obj_vector.y = 0.0
+        #     obj_vector.z = -1.0
+        #     print("vector: x = ", obj_vector.x, "y = ", obj_vector.y)
             
-            self.object_vector_publisher.publish(obj_vector)
+        #     self.object_vector_publisher.publish(obj_vector)
 
 
 def main(args=None):

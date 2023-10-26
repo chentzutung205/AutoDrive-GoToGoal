@@ -8,20 +8,20 @@ from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy, QoS
 import numpy as np
 from math import pi
 
-from rclpy.duration import Duration
 import time
+from simple_pid import PID
 
 
 # Define the way points
-way_point = np.array([[1.6, 0.0], [1.6, 1.5], [0, 1.5]])
+way_point = np.array([[1.5, 0.0], [1.5, 1.4], [0, 1.4]])
 
 # Define controllers' parameters
 K_GTG = 1.0
 K_AO = -1.0
 L = 0.1 # What is the result of changing L?
-dist_safety = 0.3
+dt = 1.0
+dist_safety = 0.15
 epsilon = 0.03
-
 
 class BehaviorControl(Node):
     def __init__(self):
@@ -43,12 +43,14 @@ class BehaviorControl(Node):
 		    depth=1
 		)
 
+
         self.odom_subscriber = self.create_subscription(
             Odometry,
             '/odom',
             self.odom_callback,
-            image_qos_profile)
+            1)
         self.odom_subscriber  # prevent unused variable warning
+
 
         self._object_position_subscriber = self.create_subscription(
             Twist,
@@ -57,12 +59,14 @@ class BehaviorControl(Node):
             image_qos_profile)
         self._object_position_subscriber
 
+
         self._object_vector_subscriber = self.create_subscription(
             Point,
             '/object_vector',
             self.vector_callback,
             image_qos_profile)
         self._object_vector_subscriber
+
 
         self.velocity_publisher = self.create_publisher(Twist, '/cmd_vel', 10)
 
@@ -84,8 +88,11 @@ class BehaviorControl(Node):
         """
         if pos.linear.z != -1.0:
             # Obstacle is detected! AO!
+            self.bool_AO = True
             self.distance_obj = pos.linear.x
             self.angle_obj = pos.angular.z
+        else:
+            self.bool_AO = False
 
 
     def vector_callback(self, vector):
@@ -93,15 +100,14 @@ class BehaviorControl(Node):
         Input is the vector (Point) of the object w.r.t the robot.
         Control the motor accordingly!
         """
-        if vector.z == -1.0:
-            # Nothing is detected! GTG!
-            self.bool_AO = False
-        else:
+        if vector.z != -1.0:
             # Obstacle is detected! AO!
-            self.bool_AO = True
             self.x_obs = vector.x
             self.y_obs = vector.y
-
+        else:
+            # Nothing is detected! GTG!
+            self.bool_AO = False
+            
 
     def update_Odometry(self,Odom):
         position = Odom.pose.pose.position
@@ -153,77 +159,48 @@ class BehaviorControl(Node):
 
         
     def GTG_state(self):
-        if self.way_point_ind == 0:
-            self.way_point_ind = 1
-            print("State 1!")
-        elif self.way_point_ind == 1:
-            self.way_point_ind = 2
-            print("State 2!")
-        elif self.way_point_ind == 2:
-            print("Stop!")
-            stop_velocity = Twist()
-            self.velocity_publisher.publish(stop_velocity)
-
-
-    def GTG_control(self, xr, yr, angle):
-        wayp_x, wayp_y = way_point[self.way_point_ind][:]
-        # print("wp_x: ", wayp_x, "wp_y: ", wayp_y)
-        ux = K_GTG * (wayp_x - xr)
-        uy = K_GTG * (wayp_y - yr)
-        u = np.array([[ux], [uy]])
-
-        wp_gap = way_point[self.way_point_ind] - np.array([xr, yr])
-        print("wp_gap: ", wp_gap)
-
-        if 0.02 > wp_gap[0] and wp_gap[0] > -0.02:
-            if 0.02 > wp_gap[1] and wp_gap[1] > -0.02:
+        if 0.02 > self.wp_gap[0] and self.wp_gap[0] > -0.02:
+            if 0.02 > self.wp_gap[1] and self.wp_gap[1] > -0.02:
                 print("Achieve goal!")
                 time.sleep(10)
                 
                 if self.way_point_ind == 0:
                     self.way_point_ind = 1
-                    print("State 1!")
+                    print("Go to Point 1!")
                 elif self.way_point_ind == 1:
                     self.way_point_ind = 2
-                    print("State 2!")
+                    print("Go to point 2!")
                 elif self.way_point_ind == 2:
                     print("Stop!")
                     stop_velocity = Twist()
                     self.velocity_publisher.publish(stop_velocity)
-                # self.GTG_state()
-
-                # if self.way_point_ind == 1:
-                #     print("Now wp_ind = 1!")
-                # elif self.way_point_ind == 2:
-                #     print("Now wp_ind = 2!")
 
 
+    def GTG_control(self, xr, yr, angle):
+        wayp_x, wayp_y = way_point[self.way_point_ind][:]
+        # print("wp_x: ", wayp_x, "wp_y: ", wayp_y)
+        ux = K_GTG * (wayp_x - xr) / dt
+        uy = K_GTG * (wayp_y - yr) / dt
+        u = np.array([[ux], [uy]])
+        
         # The rotation matrix rotates clockwise
         rot_mtx = np.matrix([[np.cos(angle), np.sin(angle)],[-np.sin(angle), np.cos(angle)]])
         u_GTG = np.matrix([[1, 0], [0, 1/L]]) * rot_mtx * u
 
         v = u_GTG[0][0]
         w = u_GTG[1][0]
-        
-        # Limit robot's velocities
-        if v > 0.2:
-            v = 0.2
-        elif v < -0.2:
-            v = -0.2
-        else:
-            v = v
+        # Limit the velocities
+        v = PID(Kp=1.0, Ki=0.0, Kd=0.0, output_limits=(-0.20, 0.20))
+        w = PID(Kp=1.0, Ki=0.0, Kd=0.0, output_limits=(-1.50, 1.50))
 
-        if w > 1.50:
-            w = 1.50
-        elif w < -1.50:
-            w = -1.50
-        else:
-            w = w
-        
+        self.wp_gap = way_point[self.way_point_ind] - np.array([xr, yr])
+        print("wp_gap: ", self.wp_gap)
+        self.GTG_state()
 
         return {'v': v, 'w': w}
 
     def AO_control(self, xr, yr, angle):
+        print("AOAOAAOAOAOAOAO")
         ux = K_AO * (self.x_obs - xr)
         uy = K_AO * (self.y_obs - yr)
         u = np.array([[ux], [uy]])
