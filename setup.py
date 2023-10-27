@@ -23,7 +23,7 @@ setup(
         	'test=bb8_navigate_to_goal.test:main',
         	'getObjectRange=bb8_navigate_to_goal.getObjectRange:main',
         	'goToGoal=bb8_navigate_to_goal.goToGoal:main',
-        	'go=bb8_navigate_to_goal.go:main'
+        	'cheatingDog=bb8_navigate_to_goal.cheatingDog:main'
         ],
     },
 )
