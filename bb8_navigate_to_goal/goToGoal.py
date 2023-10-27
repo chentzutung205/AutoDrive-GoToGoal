@@ -1,40 +1,18 @@
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import Quaternion
-from geometry_msgs.msg import Point, Twist
-from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy, QoSHistoryPolicy
-
+from geometry_msgs.msg import Twist
 import numpy as np
-from math import pi
-
+from geometry_msgs.msg import Quaternion
+from geometry_msgs.msg import Point
 import time
-from simple_pid import PID
+from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy, QoSHistoryPolicy
+import asyncio
 
+class goToGoal(Node):
 
-# Define the way points
-way_point = np.array([[1.5, 0.0], [1.5, 1.4], [0, 1.4]])
-
-# Define controllers' parameters
-K_GTG = 1.0
-K_AO = -1.0
-L = 0.1 # What is the result of changing L?
-dt = 1.0
-dist_safety = 0.15
-epsilon = 0.03
-
-class BehaviorControl(Node):
     def __init__(self):
-        super().__init__('behavior_control')
-        
-        # State (for the update_Odometry code)
-        self.Init = True
-        self.Init_pos = Point()
-        self.Init_pos.x = 0.0
-        self.Init_pos.y = 0.0
-        self.Init_ang = 0.0
-
-        self.globalPos = Point()
+        super().__init__('go_to_goal')
 
         image_qos_profile = QoSProfile(
             reliability=QoSReliabilityPolicy.BEST_EFFORT,
@@ -43,73 +21,104 @@ class BehaviorControl(Node):
 		    depth=1
 		)
 
+        self.Init = True
+        self.Init_pos = Point()
+        self.Init_pos.x = 0.0
+        self.Init_pos.y = 0.0
+        self.Init_ang = 0.0
 
-        self.odom_subscriber = self.create_subscription(
+        self.globalPos = Point()
+
+        self.odom_sub = self.create_subscription(
             Odometry,
             '/odom',
             self.odom_callback,
-            1)
-        self.odom_subscriber  # prevent unused variable warning
+            image_qos_profile)
+        self.odom_sub  # prevent unused variable warning
 
 
-        self._object_position_subscriber = self.create_subscription(
+        self.obstacle_sub = self.create_subscription(
             Twist,
             '/distance_and_angle',
-            self.object_callback,
+            self.obstacle_callback,
             image_qos_profile)
-        self._object_position_subscriber
+        self.obstacle_sub
 
 
-        self._object_vector_subscriber = self.create_subscription(
-            Point,
-            '/object_vector',
-            self.vector_callback,
-            image_qos_profile)
-        self._object_vector_subscriber
+        self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+
+        self.waypoints = []
+        self.readWayPoints()
+        self.glb_goal = np.zeros(2)
+        self.glb_bot = np.zeros(2)
+        self.robot_vel_ang = np.zeros(2)
+        self.glb_obstacle = np.array([1.6, 0.7])
+
+        self.goal_1_reached = False
+        self.goal_2_reached = False
+        self.goal_3_reached = False
+        self.goal_4_reached = False
+        self.goal_5_reached = False
+        self.goal_6_reached = False
+
+        self.mode = 'goToGoal'
+        self.distance_limit = 0.18
+        self.epsilon = 0.04
+
+        self.movement_robot = Twist()
+        self.movement_robot.linear.x = 0.0
+        self.movement_robot.angular.z = 0.0
+
+        self.theta_desired_goal = 0
+        self.theta_desired_fwc = 0
+        self.theta_desired_fwcc = 0
+        self.count = 0
+        self.switch_count = 0
+        self.globalAng = 0
+        self.globalObstacle = Point()
+
+        self.timer = self.create_timer(0.1, self.operate)
 
 
-        self.velocity_publisher = self.create_publisher(Twist, '/cmd_vel', 10)
+    def readWayPoints(self):
+        # Read WayPoints and store
+        waypoints = np.array([[1.67, 0], [1.65, 0.55], [1.35, 0.55], [1.35, 1.1], [1.70, 1.55], [0, 1.55]])
 
-        # To record at which way_point the Turtlebot is
-        self.way_point_ind = 0
-        
-        self.bool_AO = False
-        self.x_obs = 0.0
-        self.y_obs = 0.0
+        wayPoint1 = Twist()
+        wayPoint1.linear.x = waypoints[0][0]
+        wayPoint1.linear.y = waypoints[0][1]
+        self.waypoints.append(wayPoint1)
+
+        wayPoint2 = Twist()
+        wayPoint2.linear.x = waypoints[1][0]
+        wayPoint2.linear.y = waypoints[1][1]
+        self.waypoints.append(wayPoint2)
+
+        wayPoint3 = Twist()
+        wayPoint3.linear.x = waypoints[2][0]
+        wayPoint3.linear.y = waypoints[2][1]
+        self.waypoints.append(wayPoint3)
+
+        wayPoint4 = Twist()
+        wayPoint4.linear.x = waypoints[3][0]
+        wayPoint4.linear.y = waypoints[3][1]
+        self.waypoints.append(wayPoint4)
+
+        wayPoint5 = Twist()
+        wayPoint5.linear.x = waypoints[4][0]
+        wayPoint5.linear.y = waypoints[4][1]
+        self.waypoints.append(wayPoint5)
+
+        wayPoint6 = Twist()
+        wayPoint6.linear.x = waypoints[5][0]
+        wayPoint6.linear.y = waypoints[5][1]
+        self.waypoints.append(wayPoint6)
 
 
     def odom_callback(self, data):
         self.update_Odometry(data)
 
-
-    def object_callback(self, pos):
-        """
-        Input is the position info (Twist) of the object.
-        """
-        if pos.linear.z != -1.0:
-            # Obstacle is detected! AO!
-            self.bool_AO = True
-            self.distance_obj = pos.linear.x
-            self.angle_obj = pos.angular.z
-        else:
-            self.bool_AO = False
-
-
-    def vector_callback(self, vector):
-        """
-        Input is the vector (Point) of the object w.r.t the robot.
-        Control the motor accordingly!
-        """
-        if vector.z != -1.0:
-            # Obstacle is detected! AO!
-            self.x_obs = vector.x
-            self.y_obs = vector.y
-        else:
-            # Nothing is detected! GTG!
-            self.bool_AO = False
-            
-
-    def update_Odometry(self,Odom):
+    def update_Odometry(self, Odom):
         position = Odom.pose.pose.position
 
         # Orientation uses the quaternion aprametrization.
@@ -122,134 +131,296 @@ class BehaviorControl(Node):
             self.Init = False
             self.Init_ang = orientation
             self.globalAng = self.Init_ang
-            
-            # This rotation matrix rotates clockwise
-            Mrot = np.matrix([[np.cos(self.Init_ang), np.sin(self.Init_ang)],[-np.sin(self.Init_ang), np.cos(self.Init_ang)]])
+            Mrot = np.matrix([[np.cos(self.Init_ang), np.sin(self.Init_ang)], [-np.sin(self.Init_ang), np.cos(self.Init_ang)]])
             self.Init_pos.x = Mrot.item((0,0))*position.x + Mrot.item((0,1))*position.y
             self.Init_pos.y = Mrot.item((1,0))*position.x + Mrot.item((1,1))*position.y
             self.Init_pos.z = position.z
-        
-        # This rotation matrix rotates clockwise
-        Mrot = np.matrix([[np.cos(self.Init_ang), np.sin(self.Init_ang)],[-np.sin(self.Init_ang), np.cos(self.Init_ang)]])
-        
+        Mrot = np.matrix([[np.cos(self.Init_ang), np.sin(self.Init_ang)], [-np.sin(self.Init_ang), np.cos(self.Init_ang)]])
+
         # We subtract the initial values
         self.globalPos.x = Mrot.item((0,0))*position.x + Mrot.item((0,1))*position.y - self.Init_pos.x
         self.globalPos.y = Mrot.item((1,0))*position.x + Mrot.item((1,1))*position.y - self.Init_pos.y
         self.globalAng = orientation - self.Init_ang
 
-        self.get_logger().info('Transformed global pose is x:{}, y:{}, a:{}'.format(self.globalPos.x,self.globalPos.y,self.globalAng))
+        self.get_logger().info('Transformed global pose is x:{}, y:{}, a:{}'.format(self.globalPos.x, self.globalPos.y, self.globalAng))
 
-        if self.bool_AO is False:
-            u_GTG = self.GTG_control(self.globalPos.x, self.globalPos.y, self.globalAng)
-            v = u_GTG['v']
-            w = u_GTG['w']
-            velocity = Twist()
-            velocity.linear.x = float(v)
-            velocity.angular.z = float(w)
-            self.velocity_publisher.publish(velocity)
-
-        # if self.distance_obj <= dist_safety:
-        #     u_AO = self.AO_control(self.globalPos.x, self.globalPos.y, self.globalAng)
-        #     v = u_AO['v']
-        #     w = u_AO['w']
-        #     velocity = Twist()
-        #     velocity.linear.x = float(v)
-        #     velocity.angular.z = float(w)
-        #     self.velocity_publisher.publish(velocity)
-
-        
-    def GTG_state(self):
-        if 0.02 > self.wp_gap[0] and self.wp_gap[0] > -0.02:
-            if 0.02 > self.wp_gap[1] and self.wp_gap[1] > -0.02:
-                print("Achieve goal!")
-                time.sleep(10)
-                
-                if self.way_point_ind == 0:
-                    self.way_point_ind = 1
-                    print("Go to Point 1!")
-                elif self.way_point_ind == 1:
-                    self.way_point_ind = 2
-                    print("Go to point 2!")
-                elif self.way_point_ind == 2:
-                    print("Stop!")
-                    stop_velocity = Twist()
-                    self.velocity_publisher.publish(stop_velocity)
+        self.glb_bot[0] = self.globalPos.x
+        self.glb_bot[1] = self.globalPos.y
 
 
-    def GTG_control(self, xr, yr, angle):
-        wayp_x, wayp_y = way_point[self.way_point_ind][:]
-        # print("wp_x: ", wayp_x, "wp_y: ", wayp_y)
-        ux = K_GTG * (wayp_x - xr) / dt
-        uy = K_GTG * (wayp_y - yr) / dt
-        u = np.array([[ux], [uy]])
-        
-        # The rotation matrix rotates clockwise
-        rot_mtx = np.matrix([[np.cos(angle), np.sin(angle)],[-np.sin(angle), np.cos(angle)]])
-        u_GTG = np.matrix([[1, 0], [0, 1/L]]) * rot_mtx * u
+    def operate(self):
+        # Tell which goal points is reached and change current goal
+        if (self.goal_1_reached == False) and (self.goal_2_reached == False) and (self.goal_3_reached == False) and (self.goal_4_reached == False) and (self.goal_5_reached == False) and (self.goal_6_reached == False):
+            self.glb_goal[0] = (self.waypoints[0]).linear.x
+            self.glb_goal[1] = (self.waypoints[0]).linear.y
+            self.goToGoal_controller(1)
 
-        v = u_GTG[0][0]
-        w = u_GTG[1][0]
-        # Limit the velocities
-        v = PID(Kp=1.0, Ki=0.0, Kd=0.0, output_limits=(-0.20, 0.20))
-        w = PID(Kp=1.0, Ki=0.0, Kd=0.0, output_limits=(-1.50, 1.50))
+        if (self.goal_1_reached == True) and (self.goal_2_reached == False) and (self.goal_3_reached == False) and (self.goal_4_reached == False) and (self.goal_5_reached == False) and (self.goal_6_reached == False):
+            self.glb_goal[0] = (self.waypoints[1]).linear.x
+            self.glb_goal[1] = (self.waypoints[1]).linear.y
+            self.goToGoal_controller(2)
 
-        self.wp_gap = way_point[self.way_point_ind] - np.array([xr, yr])
-        print("wp_gap: ", self.wp_gap)
-        self.GTG_state()
+        if (self.goal_1_reached == True) and (self.goal_2_reached == True) and (self.goal_3_reached == False) and (self.goal_4_reached == False) and (self.goal_5_reached == False) and (self.goal_6_reached == False):
+            self.glb_goal[0] = (self.waypoints[2]).linear.x
+            self.glb_goal[1] = (self.waypoints[2]).linear.y
+            self.goToGoal_controller(3)
 
-        return {'v': v, 'w': w}
+        if (self.goal_1_reached == True) and (self.goal_2_reached == True) and (self.goal_3_reached == True) and (self.goal_4_reached == False) and (self.goal_5_reached == False) and (self.goal_6_reached == False):
+            self.glb_goal[0] = (self.waypoints[3]).linear.x
+            self.glb_goal[1] = (self.waypoints[3]).linear.y
+            self.goToGoal_controller(4)
 
-    def AO_control(self, xr, yr, angle):
-        print("AOAOAAOAOAOAOAO")
-        ux = K_AO * (self.x_obs - xr)
-        uy = K_AO * (self.y_obs - yr)
-        u = np.array([[ux], [uy]])
+        if (self.goal_1_reached == True) and (self.goal_2_reached == True) and (self.goal_3_reached == True) and (self.goal_4_reached == True) and (self.goal_5_reached == False) and (self.goal_6_reached == False):
+            self.glb_goal[0] = (self.waypoints[4]).linear.x
+            self.glb_goal[1] = (self.waypoints[4]).linear.y
+            self.goToGoal_controller(5)
 
-        # if self.dist_obj <= dist_safety and self.dist_obj > dist_safety - epsilon:
-        #     print("It should follow the wall!")
-        #     # Follow the wall!
-        #     rot_c = np.matrix([[np.cos(pi/2), np.sin(pi/2)],[-np.sin(pi/2), np.cos(pi/2)]])
-        #     rot_cc = np.matrix([[np.cos(-pi/2), np.sin(-pi/2)],[-np.sin(-pi/2), np.cos(-pi/2)]])
-        #     u_fw_c = rot_c * u
-        #     u_fw_cc = rot_cc * u
+        if (self.goal_1_reached == True) and (self.goal_2_reached == True) and (self.goal_3_reached == True) and (self.goal_4_reached == True) and (self.goal_5_reached == True) and (self.goal_6_reached == False):
+            self.glb_goal[0] = (self.waypoints[5]).linear.x
+            self.glb_goal[1] = (self.waypoints[5]).linear.y
+            self.goToGoal_controller(6)
 
-            # Let the goal decide our direction
-            # dot_c = np.inner(np.reshape(u))
-            # dot_cc = 
-            
 
-        # The rotation matrix rotates clockwise
-        rot_mtx = np.matrix([[np.cos(-angle), np.sin(-angle)],[-np.sin(-angle), np.cos(-angle)]])
-        u_AO = np.matrix([[1, 0], [0, 1/L]]) * rot_mtx * u
+        self.avoidObstacle_controller()
+        self.followWallC_controller()
+        self.followWallCC_controller()
+        self.switch_logic()
+        self.check_progress()
+        self.velocity_set()
+        self.movement_robot.linear.x = self.robot_vel_ang[0]
+        self.movement_robot.angular.z = self.robot_vel_ang[1]
+        self.cmd_vel_pub.publish(self.movement_robot)
 
-        v = u_AO[0][0]
-        w = u_AO[1][0]
-        
-        # Limit robot's velocities
-        if v > 0.22:
-            v = 0.22
-        elif v < -0.22:
-            v = -0.22
-        else:
-            v = v
 
-        if w > 2.84:
-            w = 2.84
-        elif w < -2.84:
-            w = -2.84
-        else:
-            w = w
-        
-        print("v: ", v, "w: ", w)
-        return {'v': v, 'w': w}
+    def switch_logic(self):
+
+        self.distance_to_object = np.linalg.norm(self.glb_bot - self.glb_obstacle)
+
+        if (self.mode == "goToGoal") and (self.distance_to_object <= (self.distance_limit)) and (self.u_GTG.T.dot(self.u_FWC) > 0):
+            self.glb_robot_switch = np.copy(self.glb_bot)
+            self.mode = "followWallC"
+            self.switch_time = self.get_clock().now()
+            self.switch_count+=1
+
+
+        if (self.mode == "followWallC") and (self.distance_to_object <= (self.distance_limit - self.epsilon)):
+            self.mode = "avoidObstacle"
+
+
+        if (self.mode == "goToGoal") and (self.distance_to_object <= (self.distance_limit)) and (self.u_GTG.T.dot(self.u_FWCC) > 0):
+            self.glb_robot_switch = np.copy(self.glb_bot)
+            self.mode = "followWallCC"
+            self.switch_time = self.get_clock().now()
+            self.switch_count+=1
+
+
+        if (self.mode == "avoidObstacle") and (self.distance_to_object >= (self.distance_limit + 0.02)) and (self.u_GTG.T.dot(self.u_FWC) > 0):
+            self.glb_robot_switch = np.copy(self.glb_bot)
+            self.mode = "followWallC"
+            self.switch_time = self.get_clock().now()
+            self.switch_count+=1
+
+
+        if (self.mode == "avoidObstacle") and (self.distance_to_object >= self.distance_limit + 0.02)  and (self.u_GTG.T.dot(self.u_FWCC) > 0):
+            self.glb_robot_switch = np.copy(self.glb_bot)
+            self.mode = "followWallCC"
+            self.switch_time = self.get_clock().now()
+            self.switch_count+=1
+
+
+        if (self.mode == "followWallCC") and (self.distance_to_object <= (self.distance_limit - self.epsilon)):
+            self.mode = "avoidObstacle"
+
+
+        if ((self.mode == "followWallCC") or (self.mode == "followWallC")) and (self.u_GTG.T.dot(self.u_AO) > 0) and (self.distance_to_object >= (self.distance_limit + 4 * self.epsilon)):
+            self.mode = "goToGoal"
+
+        print("Current Mode: ", self.mode)
+
+
+    def obstacle_callback(self, obj_pos):
+        # Transfer obstacle coordinate from local to global
+        self.globalObstacle.x = self.globalPos.x + obj_pos.linear.x * np.cos(self.globalAng + np.deg2rad(obj_pos.angular.z))
+        self.globalObstacle.y = self.globalPos.y + obj_pos.linear.x * np.sin(self.globalAng + np.deg2rad(obj_pos.angular.z))
+        self.obstacle_dist = obj_pos.linear.x
+        self.obstacle_orient = obj_pos.angular.z
+        self.glb_obstacle[0] = self.globalObstacle.x
+        self.glb_obstacle[1] = self.globalObstacle.y
+
+
+    def goToGoal_controller(self, goal):
+        kp_GTG = 0.8
+        ki_GTG = 0
+        kd_GTG = 0
+
+        self.u_GTG = kp_GTG * (self.glb_goal - self.glb_bot)
+
+
+    def avoidObstacle_controller(self):
+        k_AO = 0.8
+        self.u_AO = -k_AO * (self.glb_obstacle - self.glb_bot)
+
+    def followWallC_controller(self):
+        alpha = 0.2
+        self.u_FWC = alpha * (self.rotationMatrix(-np.pi/2)).dot(self.u_AO)
+
+    def followWallCC_controller(self):
+        alpha = 0.2
+        self.u_FWCC = alpha * (self.rotationMatrix(np.pi/2)).dot(self.u_AO)
+
+    def rotationMatrix(self, theta):
+        matrix = np.zeros((2,2))
+        matrix[0][0] = np.cos(theta)
+        matrix[0][1] = np.sin(theta)
+        matrix[1][0] = -np.sin(theta)
+        matrix[1][1] = np.cos(theta)
+
+        return matrix
+
+    def desired_heading(self):
+        self.theta_desired_goal = np.arctan2((self.glb_goal[1] - self.glb_bot[1]), (self.glb_goal[0] - self.glb_bot[0]))
+        self.theta_desired_fwc = np.arctan2(self.u_FWC[0], self.u_FWC[1])
+        self.theta_desired_fwcc = np.arctan2(self.u_FWCC[0], self.u_FWCC[1])
+
+
+    def velocity_set(self):
+        self.desired_heading()
+        self.k_p_angular = 1.2 # Changeable
+        self.k_p_linear = 1
+
+        if self.mode == "goToGoal":
+            angle_error = self.theta_desired_goal - self.globalAng
+            angle_error = np.arctan2(np.sin(angle_error), np.cos(angle_error))
+            self.angular_velocity = self.k_p_angular * (angle_error)
+
+            if abs(angle_error) <= np.deg2rad(10):
+                self.linear_velocity =self.k_p_linear * np.linalg.norm(self.u_GTG)
+            else:
+                self.linear_velocity = 0
+
+            if self.linear_velocity >= 0.2:
+                self.linear_velocity = 0.15
+            elif self.linear_velocity <= -0.2:
+                self.linear_velocity = -0.15
+
+            if self.angular_velocity >= 1.5:
+                self.angular_velocity = 1.5
+            elif self.angular_velocity <= -1.5:
+                self.angular_velocity = -1.5
+
+            self.robot_vel_ang[0] = self.linear_velocity
+            self.robot_vel_ang[1] = self.angular_velocity
+
+        elif self.mode == "avoidObstacle":
+            self.angular_velocity = 0
+            self.linear_velocity = -self.k_p_linear * np.linalg.norm(self.u_AO)
+
+            if self.linear_velocity >= 0.2:
+                self.linear_velocity = 0.15
+            elif self.linear_velocity <= -0.2:
+                self.linear_velocity = -0.15
+
+            if self.angular_velocity >= 1.5:
+                self.angular_velocity = 1.5
+            elif self.angular_velocity <= -1.5:
+                self.angular_velocity = -1.5
+
+            self.robot_vel_ang[0] = self.linear_velocity
+            self.robot_vel_ang[1] = self.angular_velocity
+
+        elif self.mode == "followWallC":
+            self.angular_velocity = 0.5 * self.k_p_angular * (self.theta_desired_fwc - self.globalAng)
+            self.linear_velocity = self.k_p_linear * np.linalg.norm(self.u_FWC)
+
+            if self.linear_velocity >= 0.2:
+                self.linear_velocity = 0.15
+            elif self.linear_velocity <= -0.2:
+                self.linear_velocity = -0.15
+
+            if self.angular_velocity >= 1.5:
+                self.angular_velocity = 1.5
+            elif self.angular_velocity <= -1.5:
+                self.angular_velocity = -1.5
+
+            self.robot_vel_ang[0] = self.linear_velocity          
+            self.robot_vel_ang[1] = self.angular_velocity
+                              
+        elif self.mode == "followWallCC":
+            self.angular_velocity = -0.5 * self.k_p_angular * (self.theta_desired_fwcc - self.globalAng)
+            self.linear_velocity = self.k_p_linear * np.linalg.norm(self.u_FWCC)
+
+            if self.linear_velocity >= 0.2:
+                self.linear_velocity = 0.15
+            elif self.linear_velocity <= -0.2:
+                self.linear_velocity = -0.15
+
+            if self.angular_velocity >= 1.5:
+                self.angular_velocity = 1.5
+            elif self.angular_velocity <= -1.5:
+                self.angular_velocity = -1.5
+
+            self.robot_vel_ang[0] = self.linear_velocity
+            self.robot_vel_ang[1] = self.angular_velocity
+
+
+    def check_progress(self):
+        # Check if goal is reached
+        if(self.glb_bot[0] >= 1.66) and (self.glb_bot[0] <= 1.71) and (self.glb_bot[1] >= -0.02) and (self.glb_bot[1] <= 0.02) and (self.count == 0):
+            self.goal_1_reached = True
+            self.movement_robot.linear.x = 0.0
+            self.movement_robot.angular.z = 0.0
+            self.cmd_vel_pub.publish(self.movement_robot)
+            print("Reach the 1st goal!")
+            time.sleep(10)
+            self.count += 1
+
+        if(self.glb_bot[0] >= 1.64) and (self.glb_bot[0] <= 1.66) and (self.glb_bot[1] >= 0.53) and (self.glb_bot[1] <= 0.56) and (self.count == 1):
+            self.goal_2_reached = True
+            self.movement_robot.linear.x = 0.0
+            self.movement_robot.angular.z = 0.0
+            self.cmd_vel_pub.publish(self.movement_robot)
+            self.count += 1
+
+        if(self.glb_bot[0] >= 1.33) and (self.glb_bot[0] <= 1.37) and (self.glb_bot[1] >= 0.54) and (self.glb_bot[1] <= 0.56) and (self.count == 2):
+            self.goal_3_reached = True
+            self.movement_robot.linear.x = 0.0
+            self.movement_robot.angular.z = 0.0
+            self.cmd_vel_pub.publish(self.movement_robot)
+            self.count += 1
+
+        if(self.glb_bot[0] >= 1.32) and (self.glb_bot[0] <= 1.37) and (self.glb_bot[1] >= 1.08) and (self.glb_bot[1] <= 1.12) and (self.count == 3):
+            self.goal_4_reached = True
+            self.movement_robot.linear.x = 0.0
+            self.movement_robot.angular.z = 0.0
+            self.cmd_vel_pub.publish(self.movement_robot)
+            self.count += 1
+
+        if(self.glb_bot[0] >= 1.67) and (self.glb_bot[0] <= 1.71) and (self.glb_bot[1] >= 1.54) and (self.glb_bot[1] <= 1.58) and (self.count == 4):
+            self.goal_5_reached = True
+            self.movement_robot.linear.x = 0.0
+            self.movement_robot.angular.z = 0.0
+            self.cmd_vel_pub.publish(self.movement_robot)
+            print("Reach the 2nd goal!")
+            time.sleep(10)
+            self.count += 1
+
+        if(self.glb_bot[0] >= -0.02) and (self.glb_bot[0] <= 0.04) and (self.glb_bot[1] >= 1.53) and (self.glb_bot[1] <= 1.57) and (self.count == 5):
+            self.goal_7_reached = True
+            self.movement_robot.linear.x = 0.0
+            self.movement_robot.angular.z = 0.0
+            self.cmd_vel_pub.publish(self.movement_robot)
+            print("Reach the FANAL goal!")
+            time.sleep(10)
+            stop_velocity = Twist()
+            self.cmd_vel_pub.publish(stop_velocity)
 
 
 def main(args=None):
     rclpy.init(args=args)
-    behavior_control = BehaviorControl()
-    rclpy.spin(behavior_control)
-    behavior_control.destroy_node()
+    go_to_goal = goToGoal()
+    rclpy.spin(go_to_goal)
+    go_to_goal.destroy_node()
     rclpy.shutdown()
 
-if __name__=='__main__':
+if __name__ == '__main__':
     main()

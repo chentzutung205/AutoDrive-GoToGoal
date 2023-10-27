@@ -1,13 +1,11 @@
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import Vector3, Twist
-import math
+from geometry_msgs.msg import Twist
 import numpy as np
 from geometry_msgs.msg import Quaternion
 from geometry_msgs.msg import Point
 import time
-from rclpy.duration import Duration
 from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy, QoSHistoryPolicy
 import asyncio
 
@@ -59,9 +57,6 @@ class goToGoal(Node):
         self.goal_1_reached = False
         self.goal_2_reached = False
         self.goal_3_reached = False
-        self.goal_4_reached = False
-        self.goal_5_reached = False
-        self.goal_6_reached = False
 
         self.mode = 'goToGoal'
         self.distance_limit = 0.18
@@ -84,8 +79,7 @@ class goToGoal(Node):
 
     def readWayPoints(self):
         # Read WayPoints and store
-        waypoints = np.array([[1.67, 0], [1.65, 0.55], [1.35, 0.55], [1.35, 1.1], [1.70, 1.55], [0, 1.55]])
-        # waypoints = np.array([[1.65, 0], [1.65, 0.55], [1.35, 0.55], [1.70, 1.55], [0, 1.55]])
+        waypoints = np.array([[1.65, 0], [1.65, 1.55], [0, 1.55]])
 
         wayPoint1 = Twist()
         wayPoint1.linear.x = waypoints[0][0]
@@ -101,26 +95,6 @@ class goToGoal(Node):
         wayPoint3.linear.x = waypoints[2][0]
         wayPoint3.linear.y = waypoints[2][1]
         self.waypoints.append(wayPoint3)
-
-        wayPoint4 = Twist()
-        wayPoint4.linear.x = waypoints[3][0]
-        wayPoint4.linear.y = waypoints[3][1]
-        self.waypoints.append(wayPoint4)
-
-        wayPoint5 = Twist()
-        wayPoint5.linear.x = waypoints[4][0]
-        wayPoint5.linear.y = waypoints[4][1]
-        self.waypoints.append(wayPoint5)
-
-        wayPoint6 = Twist()
-        wayPoint6.linear.x = waypoints[5][0]
-        wayPoint6.linear.y = waypoints[5][1]
-        self.waypoints.append(wayPoint6)
-
-        # wayPoint7 = Twist()
-        # wayPoint7.linear.x = waypoints[6][0]
-        # wayPoint7.linear.y = waypoints[6][1]
-        # self.waypoints.append(wayPoint7)
 
 
     def odom_callback(self, data):
@@ -158,38 +132,23 @@ class goToGoal(Node):
 
     def operate(self):
         # Tell which goal points is reached and change current goal
-        if (self.goal_1_reached == False) and (self.goal_2_reached == False) and (self.goal_3_reached == False) and (self.goal_4_reached == False) and (self.goal_5_reached == False) and (self.goal_6_reached == False):
+        if (self.goal_1_reached == False) and (self.goal_2_reached == False) and (self.goal_3_reached == False):
             self.glb_goal[0] = (self.waypoints[0]).linear.x
             self.glb_goal[1] = (self.waypoints[0]).linear.y
             self.goToGoal_controller(1)
 
-        if (self.goal_1_reached == True) and (self.goal_2_reached == False) and (self.goal_3_reached == False) and (self.goal_4_reached == False) and (self.goal_5_reached == False) and (self.goal_6_reached == False):
+        if (self.goal_1_reached == True) and (self.goal_2_reached == False) and (self.goal_3_reached == False):
+            #print('goal 1 reached')
             self.glb_goal[0] = (self.waypoints[1]).linear.x
             self.glb_goal[1] = (self.waypoints[1]).linear.y
             self.goToGoal_controller(2)
 
-        if (self.goal_1_reached == True) and (self.goal_2_reached == True) and (self.goal_3_reached == False) and (self.goal_4_reached == False) and (self.goal_5_reached == False) and (self.goal_6_reached == False):
+        if (self.goal_1_reached == True) and (self.goal_2_reached == True) and (self.goal_3_reached == False):
+            #print('goal 2 reached')
             self.glb_goal[0] = (self.waypoints[2]).linear.x
             self.glb_goal[1] = (self.waypoints[2]).linear.y
             self.goToGoal_controller(3)
 
-        if (self.goal_1_reached == True) and (self.goal_2_reached == True) and (self.goal_3_reached == True) and (self.goal_4_reached == False) and (self.goal_5_reached == False) and (self.goal_6_reached == False):
-            self.glb_goal[0] = (self.waypoints[3]).linear.x
-            self.glb_goal[1] = (self.waypoints[3]).linear.y
-            self.goToGoal_controller(4)
-
-        if (self.goal_1_reached == True) and (self.goal_2_reached == True) and (self.goal_3_reached == True) and (self.goal_4_reached == True) and (self.goal_5_reached == False) and (self.goal_6_reached == False):
-            self.glb_goal[0] = (self.waypoints[4]).linear.x
-            self.glb_goal[1] = (self.waypoints[4]).linear.y
-            self.goToGoal_controller(5)
-
-        if (self.goal_1_reached == True) and (self.goal_2_reached == True) and (self.goal_3_reached == True) and (self.goal_4_reached == True) and (self.goal_5_reached == True) and (self.goal_6_reached == False):
-            self.glb_goal[0] = (self.waypoints[5]).linear.x
-            self.glb_goal[1] = (self.waypoints[5]).linear.y
-            self.goToGoal_controller(6)
-
-
-        print("Next Target: ", self.glb_goal)
 
         self.avoidObstacle_controller()
         self.followWallC_controller()
@@ -201,17 +160,10 @@ class goToGoal(Node):
         self.movement_robot.angular.z = self.robot_vel_ang[1]
         self.cmd_vel_pub.publish(self.movement_robot)
 
-            # 每0.1秒调用一次self.operate
-            #print(self.movement_robot)
-            #print(self.glb_bot)
-
 
     def switch_logic(self):
 
         self.distance_to_object = np.linalg.norm(self.glb_bot - self.glb_obstacle)
-        # print("obs_loc: ", self.glb_obstacle)
-        # print("rob2obs: ", self.distance_to_object)
-        # print(self.distance_limit-self.epsilon)
 
         if (self.mode == "goToGoal") and (self.distance_to_object <= (self.distance_limit)) and (self.u_GTG.T.dot(self.u_FWC) > 0):
             self.glb_robot_switch = np.copy(self.glb_bot)
@@ -219,43 +171,29 @@ class goToGoal(Node):
             self.switch_time = self.get_clock().now()
             self.switch_count+=1
 
-
-        if (self.mode == "followWallC") and (self.distance_to_object <= (self.distance_limit - self.epsilon)):
+        if (self.mode == "followWallC") and (self.distance_to_object < (self.distance_limit - self.epsilon)):
             self.mode = "avoidObstacle"
-
 
         if (self.mode == "goToGoal") and (self.distance_to_object <= (self.distance_limit)) and (self.u_GTG.T.dot(self.u_FWCC) > 0):
             self.mode = "followWallCC"
-            
 
-        if (self.mode == "goToGoal") and (self.distance_to_object <= (self.distance_limit)):
-            self.glb_robot_switch = np.copy(self.glb_bot)
-            self.mode = "followWallCC"
-            self.switch_time = self.get_clock().now()
-            self.switch_count+=1
-
-        if (self.mode == "avoidObstacle") and (self.distance_to_object >= (self.distance_limit + 0.02)) and (self.u_GTG.T.dot(self.u_FWC) > 0):
+        if (self.mode == "avoidObstacle") and (self.distance_to_object >= (self.distance_limit)) and (self.u_GTG.T.dot(self.u_FWC) > 0):
             self.glb_robot_switch = np.copy(self.glb_bot)
             self.mode = "followWallC"
             self.switch_time = self.get_clock().now()
             self.switch_count+=1
 
-
-        if (self.mode == "avoidObstacle") and (self.distance_to_object >= self.distance_limit + 0.02)  and (self.u_GTG.T.dot(self.u_FWCC) > 0):
+        if (self.mode == "avoidObstacle") and (self.distance_to_object >= (self.distance_limit)) and (self.u_GTG.T.dot(self.u_FWCC) > 0):
             self.glb_robot_switch = np.copy(self.glb_bot)
             self.mode = "followWallCC"
             self.switch_time = self.get_clock().now()
             self.switch_count+=1
 
-        if (self.mode == "followWallCC") and (self.distance_to_object <= (self.distance_limit - self.epsilon)):
+        if (self.mode == "followWallCC") and (self.distance_to_object < (self.distance_limit - self.epsilon)):
             self.mode = "avoidObstacle"
 
-        # if ((self.mode == "followWallC")or(self.mode == "followWallCC")) and (self.u_GTG.T.dot(self.u_AO) > 0) and\
-        #          (np.linalg.norm(self.glb_bot - self.glb_goal) < (np.linalg.norm(self.glb_robot_switch - self.glb_goal) + 0.5)) and\
-        #          (self.distance_to_object > (self.distance_limit+self.epsilon)) and ((self.get_clock().now()-self.switch_time)>= Duration(seconds=2)):
-        #     self.mode = "goToGoal"
 
-        if ((self.mode == "followWallCC") or (self.mode == "followWallC")) and (self.u_GTG.T.dot(self.u_AO) > 0) and (self.distance_to_object >= (self.distance_limit + 4 * self.epsilon)):
+        if ((self.mode == "followWallC") or (self.mode == "followWallCC")) and (self.u_GTG.T.dot(self.u_AO) > 0) and (self.distance_to_object >= (self.distance_limit + 4 * self.epsilon)):
             self.mode = "goToGoal"
 
         print("Current Mode: ", self.mode)
@@ -302,13 +240,13 @@ class goToGoal(Node):
 
     def desired_heading(self):
         self.theta_desired_goal = np.arctan2((self.glb_goal[1] - self.glb_bot[1]), (self.glb_goal[0] - self.glb_bot[0]))
-        # self.theta_desired_fwc = np.arctan2(self.u_FWC[0], self.u_FWC[1])
+        self.theta_desired_fwc = np.arctan2(self.u_FWC[0], self.u_FWC[1])
         self.theta_desired_fwcc = np.arctan2(self.u_FWCC[0], self.u_FWCC[1])
 
 
     def velocity_set(self):
         self.desired_heading()
-        self.k_p_angular = 1.2 # Changeable
+        self.k_p_angular = 1.2
         self.k_p_linear = 1
 
         if self.mode == "goToGoal":
@@ -365,9 +303,9 @@ class goToGoal(Node):
             elif self.angular_velocity <= -1.5:
                 self.angular_velocity = -1.5
 
-            self.robot_vel_ang[0] = self.linear_velocity          
+            self.robot_vel_ang[0] = self.linear_velocity
             self.robot_vel_ang[1] = self.angular_velocity
-                              
+
         elif self.mode == "followWallCC":
             self.angular_velocity = -0.5 * self.k_p_angular * (self.theta_desired_fwcc - self.globalAng)
             self.linear_velocity = self.k_p_linear * np.linalg.norm(self.u_FWCC)
@@ -388,7 +326,7 @@ class goToGoal(Node):
 
     def check_progress(self):
         # Check if goal is reached
-        if(self.glb_bot[0] >= 1.66) and (self.glb_bot[0] <= 1.71) and (self.glb_bot[1] >= -0.02) and (self.glb_bot[1] <= 0.02) and (self.count == 0):
+        if(self.glb_bot[0] >= 1.63) and (self.glb_bot[0] <= 1.65) and (self.glb_bot[1] >= -0.12) and (self.glb_bot[1] <= 0.12) and (self.count == 0):
             self.goal_1_reached = True
             self.movement_robot.linear.x = 0.0
             self.movement_robot.angular.z = 0.0
@@ -397,31 +335,8 @@ class goToGoal(Node):
             time.sleep(10)
             self.count += 1
 
-        if(self.glb_bot[0] >= 1.64) and (self.glb_bot[0] <= 1.66) and (self.glb_bot[1] >= 0.53) and (self.glb_bot[1] <= 0.56) and (self.count == 1):
+        if(self.glb_bot[0] >= 1.63) and (self.glb_bot[0] <= 1.67) and (self.glb_bot[1] >= 1.56) and (self.glb_bot[1] <= 1.58) and (self.count == 1):
             self.goal_2_reached = True
-            self.movement_robot.linear.x = 0.0
-            self.movement_robot.angular.z = 0.0
-            self.cmd_vel_pub.publish(self.movement_robot)
-            self.count += 1
-
-        if(self.glb_bot[0] >= 1.33) and (self.glb_bot[0] <= 1.37) and (self.glb_bot[1] >= 0.54) and (self.glb_bot[1] <= 0.56) and (self.count == 2):
-            self.goal_3_reached = True
-            self.movement_robot.linear.x = 0.0
-            self.movement_robot.angular.z = 0.0
-            self.cmd_vel_pub.publish(self.movement_robot)
-            # print("Reach the 3rd goal!")
-            self.count += 1
-
-        if(self.glb_bot[0] >= 1.32) and (self.glb_bot[0] <= 1.37) and (self.glb_bot[1] >= 1.08) and (self.glb_bot[1] <= 1.12) and (self.count == 3):
-            self.goal_4_reached = True
-            self.movement_robot.linear.x = 0.0
-            self.movement_robot.angular.z = 0.0
-            self.cmd_vel_pub.publish(self.movement_robot)
-            # print("Reach the 4th goal!")
-            self.count += 1
-
-        if(self.glb_bot[0] >= 1.67) and (self.glb_bot[0] <= 1.71) and (self.glb_bot[1] >= 1.54) and (self.glb_bot[1] <= 1.58) and (self.count == 4):
-            self.goal_5_reached = True
             self.movement_robot.linear.x = 0.0
             self.movement_robot.angular.z = 0.0
             self.cmd_vel_pub.publish(self.movement_robot)
@@ -429,23 +344,14 @@ class goToGoal(Node):
             time.sleep(10)
             self.count += 1
 
-        # if(self.glb_bot[0] >= 0.53) and (self.glb_bot[0] <= 0.56) and (self.glb_bot[1] >= 1.06) and (self.glb_bot[1] <= 1.10) and (self.count == 5):
-        #     self.goal_6_reached = True
-        #     self.movement_robot.linear.x = 0.0
-        #     self.movement_robot.angular.z = 0.0
-        #     self.cmd_vel_pub.publish(self.movement_robot)
-        #     print("Reach the 6th goal!")
-        #     self.count += 1
-
-        if(self.glb_bot[0] >= -0.02) and (self.glb_bot[0] <= 0.04) and (self.glb_bot[1] >= 1.53) and (self.glb_bot[1] <= 1.57) and (self.count == 5):
-            self.goal_7_reached = True
+        if(self.glb_bot[0] >= 0.10) and (self.glb_bot[0] <= 0.40) and (self.glb_bot[1] >= 1.45) and (self.glb_bot[1] <= 1.55) and (self.count == 2):
+            self.goal_3_reached = True
             self.movement_robot.linear.x = 0.0
             self.movement_robot.angular.z = 0.0
             self.cmd_vel_pub.publish(self.movement_robot)
             print("Reach the FANAL goal!")
             time.sleep(10)
-            stop_velocity = Twist()
-            self.cmd_vel_pub.publish(stop_velocity)
+            self.count += 1
 
 
 def main(args=None):

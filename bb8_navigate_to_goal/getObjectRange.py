@@ -23,23 +23,10 @@ class GetRange(Node):
         self._lidar_subscriber
 
         self.object_position_publisher = self.create_publisher(Twist, '/distance_and_angle', 10)
-        self.object_vector_publisher = self.create_publisher(Point, '/object_vector', 10)
 
         # theta is the angle of the object
         self.theta = 0.0
         self.bool_detect = False
-
-
-    ## Not sure if we need this algorithm
-    # def Split_and_Merge(self, threshold):
-    #     if (distance > threshold):
-    #         P1 = Split_and_Merge(P[:ind+1,:],threshold) # split and merge left array
-    #         P2 = Split_and_Merge(P[ind:,:],threshold) # split and merge right array
-    #         # there are 2 "d" points, so exlude 1 (for example from 1st array)
-    #         points = np.vstack((P1[:-1,:],P2))
-    #     else:
-    #         points = np.vstack((P[0,:],P[-1,:]))
-    # return points
 
 
     def lidar_callback(self, posinfo):
@@ -50,19 +37,15 @@ class GetRange(Node):
         angle_min = posinfo.angle_min
         angle_inc = posinfo.angle_increment
 
-        # Define the range in front of the camera that Turtlebot can see
-        # roi_min = (-30) * (pi / 180)
-        # roi_max = 30 * (pi / 180)
-
-        # if roi_min <= self.theta and roi_max >= self.theta:
         ranges = np.array(posinfo.ranges)
         ranges = ranges[~np.isnan(ranges)]
-        n = len(ranges)
+        
         dist_min = np.min(ranges)
-        # print("distance: ", dist_min)
-
         dist_min_ind = np.argmin(ranges)
+
         self.theta = angle_min + dist_min_ind * angle_inc
+        # Beware of angle!
+        # effective range of angle: -pi <= angle <= pi
         if self.theta > pi:
                 self.theta = self.theta -  (2 * pi)
 
@@ -72,61 +55,6 @@ class GetRange(Node):
 
         self.object_position_publisher.publish(pos)
         
-        # dist_desired = 0.15
-
-        # if dist_min <= dist_desired:
-            # """
-            # There is something detected! AO!
-            # """
-            # print("Obstacle detected! Dangerous!")
-
-            # self.bool_detect = True
-            # self.theta = angle_min + dist_min_ind * angle_inc
-            # print("angle: ", self.theta)
-            
-            # Beware of angle!
-            # effective range of angle: -pi <= angle <= pi
-            # if self.theta > pi:
-            #     self.theta = self.theta -  (2 * pi)
-
-            # pos = Twist()
-            # pos.linear.x = float(dist_min)
-            # pos.angular.z = self.theta
-
-            # self.object_position_publisher.publish(pos)
-
-            # Turn the position info into vector
-        obj_vector = Point()
-        obj_vector.x = pos.linear.x * cos(pos.angular.z)
-        obj_vector.y = pos.linear.x * sin(pos.angular.z)
-        obj_vector.z = 0.0
-        
-        print("vector: x = ", obj_vector.x, "y = ", obj_vector.y)
-        print("dist: ", dist_min)
-        self.object_vector_publisher.publish(obj_vector)
-
-        # else:
-        #     """
-        #     Nothing is detected! GTG!
-        #     """
-        #     self.bool_detect = False
-        #     print("Cool! Turtlebot is on a roll!")
-        #     self.theta = 0.0
-        #     pos = Twist()
-        #     pos.linear.x = 0.0
-        #     pos.angular.z = 0.0
-        #     pos.linear.z = -1.0
-        #     self.object_position_publisher.publish(pos)
-
-        #     # Turn the position info into vector
-        #     obj_vector = Point()
-        #     obj_vector.x = 0.0
-        #     obj_vector.y = 0.0
-        #     obj_vector.z = -1.0
-        #     print("vector: x = ", obj_vector.x, "y = ", obj_vector.y)
-            
-        #     self.object_vector_publisher.publish(obj_vector)
-
 
 def main(args=None):
     rclpy.init(args=args)
