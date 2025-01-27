@@ -37,6 +37,16 @@ This node drives the robot through the sequence of waypoints. It incorporates ob
 4. Source your workspace.
 5. Run the nodes using:
 ```
-ros2 run bb8_chase_object goto
 ros2 run bb8_chase_object getObjectRange
+ros2 run bb8_chase_object goToGoal
 ```
+
+## Tips
+- Use the `tf2` package to transform between local and global frames if necessary.
+- Debug the robot's odometry data to ensure accurate navigation.
+- Visualize the navigation and obstacle detection in `RViz2` for better insights.
+- Tune controllers for optimal performance (e.g., smooth trajectory and faster goal-reaching).
+
+## Troubleshooting
+- Odometry Issues: Restart the TurtleBot3 bringup process if odometry drifts or is misaligned.
+- LIDAR Noise: Filter irrelevant obstacles (e.g., walls or stray objects) in the LIDAR data.
