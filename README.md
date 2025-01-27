@@ -37,8 +37,8 @@ This node drives the robot through the sequence of waypoints. It incorporates ob
 4. Source your workspace.
 5. Run the nodes using:
 ```
-ros2 run bb8_chase_object getObjectRange
-ros2 run bb8_chase_object goToGoal
+ros2 run bb8_navigate_to_goal getObjectRange
+ros2 run bb8_navigate_to_goal goToGoal
 ```
 
 ## Tips
