@@ -31,8 +31,8 @@ This node processes LIDAR data to detect the range and orientation of obstacles 
 This node drives the robot through the sequence of waypoints. It incorporates obstacle data from getObjectRange and uses onboard odometry for accurate global positioning.
 
 ## Usage
-1. Ensure all dependencies are installed.
-2. Clone this package into your ROS2 workspace.
+1. Clone this package into your ROS2 workspace.
+2. Ensure all dependencies are installed.
 3. Build the package using `colcon build`.
 4. Source your workspace.
 5. Run the nodes using:
